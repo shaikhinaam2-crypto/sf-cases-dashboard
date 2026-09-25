@@ -5,6 +5,7 @@ const cors = require('cors');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const path = require('path');
 
 // Import S3 Upload Module (including Presigned URL helper)
 const { upload, deleteFromNeonS3, getPresignedUrl } = require('./upload');
@@ -32,7 +33,7 @@ pool.connect((err, client, release) => {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Mobile Auth Token Middleware + Bypass Tunnel Warnings
 app.use((req, res, next) => {
@@ -78,6 +79,25 @@ function authMiddleware(req, res, next) {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
+
+// ----------------------------------------------------
+// PAGE ROUTING & FALLBACKS
+// ----------------------------------------------------
+
+// Serve login page as the main landing page
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// Explicit route for /login
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// Explicit route for /cases
+app.get('/cases', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'cases.html'));
+});
 
 // ----------------------------------------------------
 // API ROUTES
@@ -453,22 +473,36 @@ app.post('/api/cases/:id/timeline', authMiddleware, upload.single('file'), async
   }
 });
 
-// Toggle Case Status
+// Toggle Case Status (Mark Delivered/Undelivered or Re-open)
 app.patch('/api/cases/:id/status', authMiddleware, async (req, res) => {
   const user = req.session.user;
+  
+  // Permission Guard
   if (!user.can_close_case && user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
     return res.status(403).json({ error: 'Permission denied' });
   }
 
-  const { status } = req.body;
+  const { status, is_delivered } = req.body; // status: 'CLOSED' or 'OPEN', is_delivered: true | false | null
+
   try {
-    await pool.query('UPDATE cases SET status = $1 WHERE id = $2', [status, req.params.id]);
+    if (status === 'OPEN') {
+      await pool.query(
+        'UPDATE cases SET status = $1, is_delivered = NULL WHERE id = $2',
+        ['OPEN', req.params.id]
+      );
+    } else {
+      await pool.query(
+        'UPDATE cases SET status = $1, is_delivered = $2 WHERE id = $3',
+        ['CLOSED', is_delivered === true, req.params.id]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
+    console.error('Error updating case status:', err);
     res.status(500).json({ error: 'Failed to update status' });
   }
 });
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
