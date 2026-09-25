@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Multi-Company Delivery Issues Portal</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f9; color: #333; }
+    .header { background: #1a73e8; color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; }
+    .container { max-width: 1050px; margin: 30px auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    input, button, textarea, select { padding: 10px; margin: 6px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button { background: #1a73e8; color: white; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    button:hover { background: #1557b0; }
+    button:disabled { background: #ccc !important; cursor: not-allowed !important; }
+    .btn-danger { background: #d93025; }
+    .btn-danger:hover { background: #b3261e; }
+    .btn-success { background: #188038; }
+    .btn-success:hover { background: #13652c; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background: #f8f9fa; }
+    .status-open { color: green; font-weight: bold; }
+    .status-closed { color: red; font-weight: bold; }
+    
+    /* Fixed Timeline Item Text Wrapping & Overflow */
+    .timeline-item { 
+      border-left: 3px solid #1a73e8; 
+      padding-left: 15px; 
+      margin: 15px 0; 
+      background: #fafafa; 
+      padding: 10px; 
+      border-radius: 0 4px 4px 0;
+      word-break: break-word; 
+      overflow-wrap: anywhere;
+    }
+    .timeline-item p {
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .media { max-width: 300px; display: block; margin-top: 8px; border-radius: 4px; }
+    .hidden { display: none !important; }
+    .nav-btn { margin-left: 10px; background: rgba(255,255,255,0.2); }
+    .user-badge { background: #e8f0fe; color: #1a73e8; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 0.85em; }
+    .company-badge { background: #fef7e0; color: #b06000; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 0.85em; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; }
+
+    /* Filter Bar Styles */
+    .filter-bar { display: flex; gap: 12px; align-items: flex-end; margin-top: 15px; background: #f8f9fa; padding: 12px; border-radius: 6px; border: 1px solid #e0e0e0; flex-wrap: wrap; }
+    .filter-group { display: flex; flex-direction: column; }
+    .filter-group label { font-size: 0.82em; font-weight: bold; color: #555; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .filter-group select, .filter-group input { margin: 0; }
+    
+    /* Spinners & Overlay */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.8s linear infinite; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #globalOverlayLoader {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255, 255, 255, 0.7);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 9999;
+    }
+    .big-spinner { width: 40px; height: 40px; border: 4px solid #1a73e8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  </style>
+</head>
+<body>
+
+<!-- Global Overlay Loader for Data Fetching -->
+<div id="globalOverlayLoader" class="hidden">
+  <div class="big-spinner"></div>
+  <p style="margin-top: 12px; font-weight: bold; color: #1a73e8;" id="overlayText">Loading data...</p>
+</div>
+
+<!-- Login View -->
+<div id="loginView" class="container">
+  <h2>Multi-Company Portal - Login</h2>
+  <div id="loginError" style="color:red; margin-bottom: 10px;"></div>
+  <input type="text" id="loginUser" placeholder="Username" style="width:100%"><br>
+  <input type="password" id="loginPass" placeholder="Password" style="width:100%"><br>
+  <button id="loginBtn" onclick="login()" style="width:100%">Login</button>
+</div>
+
+<!-- Main App View -->
+<div id="appView" class="hidden">
+  <div class="header">
+    <h3 style="margin:0;">Delivery Portal</h3>
+    <div>
+      <span id="userInfo" style="margin-right: 15px;"></span>
+      <button class="nav-btn" onclick="showCasesPage()">Cases</button>
+      <button id="adminNavBtn" class="nav-btn hidden" onclick="showAdminPage()">Manage Users</button>
+      <button id="superadminNavBtn" class="nav-btn hidden" onclick="showSuperadminPage()">Manage Companies</button>
+      <button class="nav-btn btn-danger" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Cases List Page -->
+  <div id="casesPage" class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0;">Cases List</h3>
+      <button onclick="toggleRegisterForm()">+ Register New Case</button>
+    </div>
+
+    <!-- Enhanced Filter Controls -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label for="statusFilter">Case Status</label>
+        <select id="statusFilter" onchange="applyFilters()" style="font-weight: bold; min-width: 120px;">
+          <option value="OPEN" selected>OPEN</option>
+          <option value="CLOSED">CLOSED</option>
+          <option value="ALL">ALL</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="assignedUserFilter">Assigned User</label>
+        <select id="assignedUserFilter" onchange="applyFilters()" style="font-weight: bold; min-width: 160px;">
+          <!-- Dynamically filled with users -->
+        </select>
+      </div>
+
+      <div class="filter-group" style="flex: 1;">
+        <label for="searchInput">Search CN / Ref</label>
+        <input type="text" id="searchInput" placeholder="Filter by CN Number or Ref Number..." onkeyup="handleSearch(event)">
+      </div>
+
+      <button id="searchBtn" onclick="applySearch()">Search</button>
+      <button class="btn-danger" onclick="clearSearch()">Clear</button>
+    </div>
+
+    <!-- Case Registration Form -->
+    <div id="registerForm" class="hidden" style="background:#f9f9f9; padding:15px; margin-top:10px; border-radius:5px;">
+      <h4>New Case Details</h4>
+      <input type="text" id="regCn" placeholder="CN Number" style="width:23%">
+      <input type="text" id="regRef" placeholder="Ref Number" style="width:23%">
+      <input type="text" id="regMobile" placeholder="Mobile Number" style="width:23%">
+      <select id="regAssignee" style="width:23%"></select><br>
+      <button id="submitCaseBtn" onclick="registerCase()">Submit Registration</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>CN Number</th>
+          <th>Ref Number</th>
+          <th>Mobile</th>
+          <th>Assigned To</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="casesTableBody"></tbody>
+    </table>
+
+    <!-- Pagination Controls -->
+    <div class="pagination">
+      <button id="prevBtn" onclick="changePage(-1)">← Previous</button>
+      <span id="pageInfo">Page 1 of 1</span>
+      <button id="nextBtn" onclick="changePage(1)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Timeline View Page -->
+  <div id="timelinePage" class="container hidden">
+    <button onclick="showCasesPage()">← Back to Cases</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+      <div>
+        <h3 id="timelineTitle" style="margin:0;"></h3>
+        <small id="currentAssigneeLabel" style="color:#666;"></small>
+      </div>
+      <div>
+        <button id="closeCaseBtn" class="hidden" onclick="toggleCaseStatus()"></button>
+        <button id="deleteCaseBtn" class="btn-danger hidden" onclick="deleteCase()">Delete Case</button>
+      </div>
+    </div>
+
+    <!-- Add Timeline Update Form -->
+    <div style="background:#f9f9f9; padding:15px; margin: 15px 0; border-radius:5px; border: 1px solid #e0e0e0;">
+      <h4 style="margin-top:0;">Add Timeline Update</h4>
+      <label>Reassign Case To:</label><br>
+      <select id="timelineAssigneeSelect" style="width:100%"></select><br>
+      <textarea id="updateMsg" rows="3" style="width:100%" placeholder="Type message..."></textarea><br>
+      <input type="file" id="updateFile"><br>
+      <button id="postUpdateBtn" onclick="postTimelineUpdate()" class="btn-success">Post Update</button>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+    <div id="timelineContainer"></div>
+  </div>
+
+  <!-- Company Admin Management Page -->
+  <div id="adminPage" class="container hidden">
+    <h3>Company User Management</h3>
+    <div style="background:#f9f9f9; padding:15px; border-radius:5px;">
+      <h4>Create New Staff User</h4>
+      <input type="text" id="newUsername" placeholder="Username"><br>
+      <input type="password" id="newPassword" placeholder="Password"><br>
+      <label><input type="checkbox" id="canClosePermission"> Allow user to CLOSE cases</label><br><br>
+      <button id="createUserBtn" onclick="createUser()">Create Staff User</button>
+    </div>
+
+    <h4>Staff Members in Your Company</h4>
+    <table>
+      <thead>
+        <tr><th>User ID</th><th>Username</th><th>Role</th><th>Can Close Cases</th><th>Action</th></tr>
+      </thead>
+      <tbody id="usersTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Superadmin Page -->
+  <div id="superadminPage" class="container hidden">
+    <h3>Superadmin Management: Register Companies</h3>
+    <div style="background:#f9f9f9; padding:15px; border-radius:5px;">
+      <h4>Register New Company & Company Admin</h4>
+      <input type="text" id="compName" placeholder="Company Name" style="width:100%"><br>
+      <input type="text" id="compAdminUser" placeholder="Company Admin Username" style="width:49%">
+      <input type="password" id="compAdminPass" placeholder="Company Admin Password" style="width:49%"><br>
+      <button id="createCompBtn" onclick="createCompany()">Create Company</button>
+    </div>
+
+    <h4>Registered Companies</h4>
+    <table>
+      <thead>
+        <tr><th>Company ID</th><th>Company Name</th><th>Date Registered</th><th>Action</th></tr>
+      </thead>
+      <tbody id="companiesTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let currentUser = null;
+let activeCase = null;
+let registeredUsers = [];
+let currentPage = 1;
+let totalPages = 1;
+let currentSearch = '';
+let currentStatus = 'OPEN';
+let currentAssignedUser = '';
+
+function showOverlay(message = 'Loading data...') {
+  document.getElementById('overlayText').innerText = message;
+  document.getElementById('globalOverlayLoader').classList.remove('hidden');
+}
+
+function hideOverlay() {
+  document.getElementById('globalOverlayLoader').classList.add('hidden');
+}
+
+async function checkAuth() {
+  showOverlay('Checking authentication...');
+  try {
+    const res = await fetch('/api/me');
+    if (res.ok) {
+      currentUser = await res.json();
+      currentAssignedUser = currentUser.username;
+      setupUI();
+    } else {
+      document.getElementById('loginView').classList.remove('hidden');
+      document.getElementById('appView').classList.add('hidden');
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function login() {
+  const btn = document.getElementById('loginBtn');
+  const username = document.getElementById('loginUser').value;
+  const password = document.getElementById('loginPass').value;
+
+  if (!username || !password) return alert('Provide both username and password');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Logging in...';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+      currentAssignedUser = currentUser.username;
+      setupUI();
+    } else {
+      const err = await res.json();
+      document.getElementById('loginError').innerText = err.error;
+    }
+  } catch (err) {
+    alert('Network error while logging in.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Login';
+  }
+}
+
+async function logout() {
+  showOverlay('Logging out...');
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
+}
+
+async function fetchUsersList() {
+  const res = await fetch('/api/users');
+  if (res.ok) {
+    registeredUsers = await res.json();
+    populateUserDropdowns();
+  }
+}
+
+function populateUserDropdowns() {
+  const regSelect = document.getElementById('regAssignee');
+  const timelineSelect = document.getElementById('timelineAssigneeSelect');
+  const filterSelect = document.getElementById('assignedUserFilter');
+
+  let options = '<option value="Unassigned">Assign To (Default: Unassigned)</option>';
+  options += registeredUsers.map(u => `<option value="${u.username}">${u.username}</option>`).join('');
+  
+  regSelect.innerHTML = options;
+  timelineSelect.innerHTML = options;
+
+  let filterOptions = `<option value="ALL">ALL Users</option>`;
+  filterOptions += registeredUsers.map(u => `<option value="${u.username}">${u.username}</option>`).join('');
+  filterSelect.innerHTML = filterOptions;
+
+  if (currentUser && registeredUsers.some(u => u.username === currentUser.username)) {
+    filterSelect.value = currentUser.username;
+    currentAssignedUser = currentUser.username;
+  } else {
+    filterSelect.value = 'ALL';
+    currentAssignedUser = 'ALL';
+  }
+}
+
+function setupUI() {
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('appView').classList.remove('hidden');
+  document.getElementById('userInfo').innerText = `${currentUser.username} (${currentUser.role})`;
+
+  if (currentUser.role === 'ADMIN') {
+    document.getElementById('adminNavBtn').classList.remove('hidden');
+  } else if (currentUser.role === 'SUPERADMIN') {
+    document.getElementById('superadminNavBtn').classList.remove('hidden');
+  }
+
+  fetchUsersList().then(() => {
+    showCasesPage();
+  });
+}
+
+function showCasesPage() {
+  hideAllPages();
+  document.getElementById('casesPage').classList.remove('hidden');
+  loadCases();
+}
+
+function showAdminPage() {
+  hideAllPages();
+  document.getElementById('adminPage').classList.remove('hidden');
+  loadUsers();
+}
+
+function showSuperadminPage() {
+  hideAllPages();
+  document.getElementById('superadminPage').classList.remove('hidden');
+  loadCompanies();
+}
+
+function hideAllPages() {
+  document.getElementById('casesPage').classList.add('hidden');
+  document.getElementById('timelinePage').classList.add('hidden');
+  document.getElementById('adminPage').classList.add('hidden');
+  document.getElementById('superadminPage').classList.add('hidden');
+}
+
+function toggleRegisterForm() {
+  document.getElementById('registerForm').classList.toggle('hidden');
+}
+
+async function registerCase() {
+  const btn = document.getElementById('submitCaseBtn');
+  const cn_number = document.getElementById('regCn').value;
+  const ref_number = document.getElementById('regRef').value;
+  const mobile_number = document.getElementById('regMobile').value;
+  const assigned_to = document.getElementById('regAssignee').value;
+
+  if (!cn_number) return alert('CN Number is required');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Registering Case...';
+
+  try {
+    const res = await fetch('/api/cases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cn_number, ref_number, mobile_number, assigned_to })
+    });
+
+    if (res.ok) {
+      document.getElementById('regCn').value = '';
+      document.getElementById('regRef').value = '';
+      document.getElementById('regMobile').value = '';
+      toggleRegisterForm();
+      await loadCases();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to register case');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Submit Registration';
+  }
+}
+
+async function loadCases() {
+  showOverlay('Loading cases list...');
+  try {
+    const url = `/api/cases?page=${currentPage}&limit=100&search=${encodeURIComponent(currentSearch)}&status=${encodeURIComponent(currentStatus)}&assigned_to=${encodeURIComponent(currentAssignedUser)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    const tbody = document.getElementById('casesTableBody');
+    tbody.innerHTML = data.cases.map(c => `
+      <tr>
+        <td><span class="company-badge">${c.company_name}</span></td>
+        <td><b>${c.cn_number}</b></td>
+        <td>${c.ref_number || '-'}</td>
+        <td>${c.mobile_number || '-'}</td>
+        <td><span class="user-badge">${c.assigned_to || 'Unassigned'}</span></td>
+        <td class="${c.status === 'OPEN' ? 'status-open' : 'status-closed'}">${c.status}</td>
+        <td>
+          <button id="viewBtn_${c._id}" onclick="openTimeline('${c._id}', '${c.cn_number}', '${c.status}', '${c.assigned_to || 'Unassigned'}')">
+            View Timeline
+          </button>
+        </td>
+      </tr>
+    `).join('');
+
+    currentPage = data.page;
+    totalPages = data.totalPages;
+    document.getElementById('pageInfo').innerText = `Page ${data.page} of ${data.totalPages} (${data.total} records)`;
+    document.getElementById('prevBtn').disabled = currentPage <= 1;
+    document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+  } catch (err) {
+    alert('Failed to fetch cases list.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+function applyFilters() {
+  currentStatus = document.getElementById('statusFilter').value;
+  currentAssignedUser = document.getElementById('assignedUserFilter').value;
+  currentPage = 1;
+  loadCases();
+}
+
+function handleSearch(event) {
+  if (event.key === 'Enter') applySearch();
+}
+
+function applySearch() {
+  currentSearch = document.getElementById('searchInput').value;
+  currentPage = 1;
+  loadCases();
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('statusFilter').value = 'OPEN';
+  
+  if (currentUser && registeredUsers.some(u => u.username === currentUser.username)) {
+    document.getElementById('assignedUserFilter').value = currentUser.username;
+    currentAssignedUser = currentUser.username;
+  } else {
+    document.getElementById('assignedUserFilter').value = 'ALL';
+    currentAssignedUser = 'ALL';
+  }
+
+  currentSearch = '';
+  currentStatus = 'OPEN';
+  currentPage = 1;
+  loadCases();
+}
+
+function changePage(direction) {
+  currentPage += direction;
+  loadCases();
+}
+
+async function openTimeline(id, cn, status, assignedTo) {
+  const btn = document.getElementById(`viewBtn_${id}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Opening...';
+  }
+
+  showOverlay('Loading timeline entries...');
+  activeCase = { id, cn, status, assignedTo };
+
+  try {
+    hideAllPages();
+    document.getElementById('timelinePage').classList.remove('hidden');
+    document.getElementById('timelineTitle').innerText = `Timeline - CN: ${cn}`;
+    document.getElementById('currentAssigneeLabel').innerText = `Currently Assigned To: ${assignedTo}`;
+    document.getElementById('timelineAssigneeSelect').value = assignedTo;
+
+    const closeBtn = document.getElementById('closeCaseBtn');
+    const deleteBtn = document.getElementById('deleteCaseBtn');
+
+    if (currentUser.role === 'SUPERADMIN' || currentUser.role === 'ADMIN' || currentUser.can_close_case === 1) {
+      closeBtn.classList.remove('hidden');
+      closeBtn.innerText = status === 'OPEN' ? 'Close Case' : 'Re-open Case';
+      closeBtn.className = status === 'OPEN' ? 'btn-danger' : 'btn-success';
+    } else {
+      closeBtn.classList.add('hidden');
+    }
+
+    if (currentUser.role === 'SUPERADMIN' || currentUser.role === 'ADMIN') {
+      deleteBtn.classList.remove('hidden');
+    } else {
+      deleteBtn.classList.add('hidden');
+    }
+
+    const res = await fetch(`/api/cases/${id}/timeline`);
+    const items = await res.json();
+    
+    document.getElementById('timelineContainer').innerHTML = items.map(i => {
+      let media = '';
+      if (i.file_path) {
+        if (i.file_type.startsWith('image/')) media = `<img src="${i.file_path}" class="media"/>`;
+        else if (i.file_type.startsWith('audio/')) media = `<audio controls src="${i.file_path}" class="media"></audio>`;
+        else media = `<a href="${i.file_path}" target="_blank">View File Attachment</a>`;
+      }
+      return `
+        <div class="timeline-item">
+          <small><b>${i.username}</b> • ${new Date(i.created_at).toLocaleString()}</small>
+          <p style="margin: 5px 0;">${i.message || ''}</p>
+          ${media}
+        </div>`;
+    }).join('');
+  } catch (err) {
+    alert('Failed to load timeline.');
+    showCasesPage();
+  } finally {
+    hideOverlay();
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'View Timeline';
+    }
+  }
+}
+
+async function postTimelineUpdate() {
+  const btn = document.getElementById('postUpdateBtn');
+  const fileInput = document.getElementById('updateFile');
+  const hasFile = fileInput.files.length > 0;
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>${hasFile ? 'Uploading File...' : 'Posting Update...'}`;
+
+  const formData = new FormData();
+  formData.append('message', document.getElementById('updateMsg').value);
+  formData.append('assigned_to', document.getElementById('timelineAssigneeSelect').value);
+  if (hasFile) formData.append('file', fileInput.files[0]);
+
+  try {
+    const res = await fetch(`/api/cases/${activeCase.id}/timeline`, { method: 'POST', body: formData });
+    if (res.ok) {
+      document.getElementById('updateMsg').value = '';
+      fileInput.value = '';
+      const selectedAssignee = document.getElementById('timelineAssigneeSelect').value;
+      await openTimeline(activeCase.id, activeCase.cn, activeCase.status, selectedAssignee);
+    } else {
+      const err = await res.json();
+      alert(err.error || 'Failed to post update');
+    }
+  } catch (err) {
+    alert('Upload network error. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Post Update';
+  }
+}
+
+async function deleteCase() {
+  if (!confirm(`Are you sure you want to delete Case CN: ${activeCase.cn}? All files will be permanently deleted.`)) return;
+
+  const btn = document.getElementById('deleteCaseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Deleting...';
+
+  try {
+    const res = await fetch(`/api/cases/${activeCase.id}`, { method: 'DELETE' });
+    if (res.ok) {
+      alert('Case and media files deleted successfully.');
+      showCasesPage();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to delete case.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Delete Case';
+  }
+}
+
+async function toggleCaseStatus() {
+  const btn = document.getElementById('closeCaseBtn');
+  const newStatus = activeCase.status === 'OPEN' ? 'CLOSED' : 'OPEN';
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>${newStatus === 'CLOSED' ? 'Closing...' : 'Re-opening...'}`;
+
+  try {
+    const res = await fetch(`/api/cases/${activeCase.id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+
+    if (res.ok) {
+      activeCase.status = newStatus;
+      await openTimeline(activeCase.id, activeCase.cn, newStatus, activeCase.assignedTo);
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to update case status.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function createCompany() {
+  const btn = document.getElementById('createCompBtn');
+  const company_name = document.getElementById('compName').value;
+  const admin_username = document.getElementById('compAdminUser').value;
+  const admin_password = document.getElementById('compAdminPass').value;
+
+  if (!company_name || !admin_username || !admin_password) return alert('Provide all company details');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating Company...';
+
+  try {
+    const res = await fetch('/api/superadmin/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_name, admin_username, admin_password })
+    });
+
+    if (res.ok) {
+      document.getElementById('compName').value = '';
+      document.getElementById('compAdminUser').value = '';
+      document.getElementById('compAdminPass').value = '';
+      loadCompanies();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to create company.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create Company';
+  }
+}
+
+async function deleteCompany(companyId, companyName) {
+  if (!confirm(`Are you sure you want to delete "${companyName}"? ALL company users, cases, and media files will be erased permanently.`)) return;
+
+  showOverlay('Deleting company and associated media...');
+  try {
+    const res = await fetch(`/api/superadmin/companies/${companyId}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadCompanies();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to delete company.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function loadCompanies() {
+  showOverlay('Loading companies...');
+  try {
+    const res = await fetch('/api/superadmin/companies');
+    const companies = await res.json();
+    const tbody = document.getElementById('companiesTableBody');
+    tbody.innerHTML = companies.map(c => `
+      <tr>
+        <td>${c.id || c._id}</td>
+        <td><b>${c.name}</b></td>
+        <td>${new Date(c.created_at).toLocaleString()}</td>
+        <td><button class="btn-danger" onclick="deleteCompany('${c.id || c._id}', '${c.name}')">Delete Company</button></td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert('Failed to load companies.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function createUser() {
+  const btn = document.getElementById('createUserBtn');
+  const username = document.getElementById('newUsername').value;
+  const password = document.getElementById('newPassword').value;
+  const can_close_case = document.getElementById('canClosePermission').checked;
+
+  if (!username || !password) return alert('Provide username and password');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating User...';
+
+  try {
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, can_close_case })
+    });
+
+    if (res.ok) {
+      document.getElementById('newUsername').value = '';
+      document.getElementById('newPassword').value = '';
+      document.getElementById('canClosePermission').checked = false;
+      loadUsers();
+      fetchUsersList();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to create user.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create Staff User';
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm(`Delete user "${username}"?`)) return;
+
+  showOverlay('Deleting user...');
+  try {
+    const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadUsers();
+      fetchUsersList();
+    } else {
+      const err = await res.json();
+      alert(err.error);
+    }
+  } catch (err) {
+    alert('Failed to delete user.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function loadUsers() {
+  showOverlay('Loading staff members...');
+  try {
+    const res = await fetch('/api/users');
+    const users = await res.json();
+    const tbody = document.getElementById('usersTableBody');
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>${u.id || u._id}</td>
+        <td><b>${u.username}</b></td>
+        <td>${u.role}</td>
+        <td>${u.can_close_case ? 'Yes' : 'No'}</td>
+        <td>
+          ${u.role !== 'SUPERADMIN' ? `<button class="btn-danger" onclick="deleteUser('${u.id || u._id}', '${u.username}')">Delete User</button>` : '-'}
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    alert('Failed to load users.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+checkAuth();
+</script>
+</body>
+</html>
