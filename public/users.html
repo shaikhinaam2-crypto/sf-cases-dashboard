@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>User Management - Delivery Portal</title>
+  <link rel="stylesheet" href="/css/portal.css">
+  <script src="/js/shared.js"></script>
+</head>
+<body>
+
+<div id="globalOverlayLoader">
+  <div class="big-spinner"></div>
+  <p style="margin-top: 12px; font-weight: bold; color: #1a73e8;" id="overlayText">Loading portal data...</p>
+</div>
+
+<div class="header">
+  <h3 style="margin:0;">Delivery Portal</h3>
+  <div>
+    <span id="userInfo" style="margin-right: 15px;"></span>
+    <a href="/dashboard" class="nav-btn">Dashboard</a>
+    <a href="/cases" class="nav-btn">Cases List</a>
+    <a id="adminNavBtn" href="/users" class="nav-btn active">Manage Users</a>
+    <a id="superadminNavBtn" href="/companies" class="nav-btn hidden">Manage Companies</a>
+    <button class="nav-btn btn-danger" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<div class="container">
+  <h3>Company User Management</h3>
+  
+  <div style="background:#f9f9f9; padding:15px; border-radius:5px; border: 1px solid #e0e0e0;">
+    <h4 style="margin-top:0;">Create New Staff User</h4>
+    <input type="text" id="newUsername" placeholder="Username" style="width:49%">
+    <input type="password" id="newPassword" placeholder="Password" style="width:49%"><br>
+    <label style="display:inline-block; margin-top:8px;">
+      <input type="checkbox" id="canClosePermission"> Allow user to CLOSE cases
+    </label><br><br>
+    <button id="createUserBtn" onclick="createUser()">Create Staff User</button>
+  </div>
+
+  <h4 style="margin-top:25px;">Staff Members in Your Company</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>User ID</th>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Can Close Cases</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="usersTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+async function createUser() {
+  var btn = document.getElementById('createUserBtn');
+  var username = document.getElementById('newUsername').value;
+  var password = document.getElementById('newPassword').value;
+  var can_close_case = document.getElementById('canClosePermission').checked;
+
+  if (!username || !password) return alert('Provide username and password');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating...';
+
+  try {
+    var res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password, can_close_case: can_close_case })
+    });
+
+    if (res.ok) {
+      document.getElementById('newUsername').value = '';
+      document.getElementById('newPassword').value = '';
+      document.getElementById('canClosePermission').checked = false;
+      loadUsers();
+    } else {
+      var err = await res.json();
+      alert(err.error || 'Failed to create user');
+    }
+  } catch (err) {
+    alert('Failed to create user.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create Staff User';
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm('Are you sure you want to delete user "' + username + '"?')) return;
+
+  showOverlay('Deleting user...');
+  try {
+    var res = await fetch('/api/users/' + userId, { method: 'DELETE' });
+    if (res.ok) {
+      loadUsers();
+    } else {
+      var err = await res.json();
+      alert(err.error || 'Failed to delete user');
+    }
+  } catch (err) {
+    alert('Failed to delete user.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function loadUsers() {
+  showOverlay('Loading staff members...');
+  try {
+    var res = await fetch('/api/users');
+    var users = await res.json();
+    var tbody = document.getElementById('usersTableBody');
+    tbody.innerHTML = (users || []).map(function(u) {
+      var uId = u.id || u._id;
+      return '<tr>' +
+        '<td>' + uId + '</td>' +
+        '<td><b>' + u.username + '</b></td>' +
+        '<td>' + u.role + '</td>' +
+        '<td>' + (u.can_close_case ? 'Yes' : 'No') + '</td>' +
+        '<td>' + (u.role !== 'SUPERADMIN' ? '<button class="btn-danger" onclick="deleteUser(\'' + uId + '\', \'' + u.username + '\')">Delete User</button>' : '-') + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    alert('Failed to load users.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+checkAuth('adminNavBtn').then(function() {
+  loadUsers();
+});
+</script>
+</body>
+</html>

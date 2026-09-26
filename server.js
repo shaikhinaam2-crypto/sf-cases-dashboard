@@ -588,6 +588,32 @@ app.patch('/api/cases/:id/status', authMiddleware, async (req, res) => {
   }
 });
 
+
+// Add these explicit page routes to server.js before app.listen(...)
+
+app.get('/dashboard', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+app.get('/cases', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'cases.html'));
+});
+
+app.get('/timeline', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'timeline.html'));
+});
+
+app.get('/users', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'users.html'));
+});
+
+app.get('/companies', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'companies.html'));
+});
+
+
+
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Case Timeline - Delivery Portal</title>
+  <link rel="stylesheet" href="/css/portal.css">
+  <script src="/js/shared.js"></script>
+</head>
+<body>
+
+<div id="globalOverlayLoader">
+  <div class="big-spinner"></div>
+  <p style="margin-top: 12px; font-weight: bold; color: #1a73e8;" id="overlayText">Loading portal data...</p>
+</div>
+
+<div class="header">
+  <h3 style="margin:0;">Delivery Portal</h3>
+  <div>
+    <span id="userInfo" style="margin-right: 15px;"></span>
+    <a href="/dashboard" class="nav-btn">Dashboard</a>
+    <a href="/cases" class="nav-btn">Cases List</a>
+    <a id="adminNavBtn" href="/users" class="nav-btn hidden">Manage Users</a>
+    <a id="superadminNavBtn" href="/companies" class="nav-btn hidden">Manage Companies</a>
+    <button class="nav-btn btn-danger" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<div class="container">
+  <a href="/cases" style="text-decoration:none; display:inline-block; margin-bottom:12px; font-weight:bold; color:#1a73e8;">← Back to Cases List</a>
+  
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+    <div>
+      <h3 id="timelineTitle" style="margin:0;">Loading Timeline...</h3>
+      <small id="currentAssigneeLabel" style="color:#666;"></small>
+    </div>
+    
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <div id="closeActionGroup" class="hidden" style="display:flex; gap:6px;">
+        <button id="markDeliveredBtn" class="btn-success" onclick="updateCaseStatus('CLOSED', true)">Mark Delivered & Close</button>
+        <button id="markUndeliveredBtn" class="btn-danger" onclick="updateCaseStatus('CLOSED', false)">Mark Undelivered & Close</button>
+      </div>
+
+      <button id="reopenCaseBtn" class="btn-success hidden" onclick="updateCaseStatus('OPEN', null)">Re-open Case</button>
+      <button id="deleteCaseBtn" class="btn-danger hidden" onclick="deleteCase()">Delete Case</button>
+    </div>
+  </div>
+
+  <div style="background:#f9f9f9; padding:15px; margin: 15px 0; border-radius:5px; border: 1px solid #e0e0e0;">
+    <h4 style="margin-top:0;">Add Timeline Update</h4>
+    <label>Reassign Case To:</label><br>
+    <select id="timelineAssigneeSelect" style="width:100%"></select><br>
+    <textarea id="updateMsg" rows="3" style="width:100%" placeholder="Type message..."></textarea><br>
+    <input type="file" id="updateFile"><br>
+    <button id="postUpdateBtn" onclick="postTimelineUpdate()" class="btn-success">Post Update</button>
+  </div>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+  <div id="timelineContainer"></div>
+</div>
+
+<script>
+var urlParams = new URLSearchParams(window.location.search);
+var caseId = urlParams.get('id');
+var activeCase = null;
+
+async function fetchUsersList() {
+  try {
+    var res = await fetch('/api/users');
+    if (res.ok) {
+      var users = await res.json();
+      var select = document.getElementById('timelineAssigneeSelect');
+      var options = '<option value="Unassigned">Assign To (Default: Unassigned)</option>';
+      options += users.map(function(u) { return '<option value="' + u.username + '">' + u.username + '</option>'; }).join('');
+      select.innerHTML = options;
+    }
+  } catch(e) {}
+}
+
+async function loadTimeline() {
+  if (!caseId) { alert('Invalid case ID'); window.location.href = '/cases'; return; }
+  showOverlay('Loading timeline...');
+
+  try {
+    // 1. Fetch Timeline Entries
+    var res = await fetch('/api/cases/' + caseId + '/timeline');
+    var items = await res.json();
+
+    // 2. Fetch Case Metadata (Pass status=ALL so CLOSED cases are retrieved)
+    var caseRes = await fetch('/api/cases?status=ALL&limit=1000');
+    var caseData = await caseRes.json();
+    var match = (caseData.cases || []).find(function(c) { return (c.id || c._id) === caseId; });
+
+    if (match) {
+      activeCase = match;
+      document.getElementById('timelineTitle').innerText = 'Timeline - CN: ' + match.cn_number;
+      document.getElementById('currentAssigneeLabel').innerText = 'Currently Assigned To: ' + (match.assigned_to || 'Unassigned');
+      document.getElementById('timelineAssigneeSelect').value = match.assigned_to || 'Unassigned';
+
+      var closeGroup = document.getElementById('closeActionGroup');
+      var reopenBtn = document.getElementById('reopenCaseBtn');
+      var deleteBtn = document.getElementById('deleteCaseBtn');
+
+      var hasClosePermission = (currentUser.role === 'SUPERADMIN' || currentUser.role === 'ADMIN' || currentUser.can_close_case === 1);
+
+      if (hasClosePermission) {
+        if (match.status === 'OPEN') {
+          closeGroup.classList.remove('hidden');
+          reopenBtn.classList.add('hidden');
+        } else {
+          closeGroup.classList.add('hidden');
+          reopenBtn.classList.remove('hidden'); // Displays Re-open button for CLOSED status
+        }
+      }
+
+      if (currentUser.role === 'SUPERADMIN' || currentUser.role === 'ADMIN') {
+        deleteBtn.classList.remove('hidden');
+      }
+    }
+
+    // 3. Render Timeline Entries
+    document.getElementById('timelineContainer').innerHTML = (items || []).map(function(i) {
+      var media = '';
+      if (i.file_path) {
+        if (i.file_type && i.file_type.startsWith('image/')) media = '<img src="' + i.file_path + '" class="media"/>';
+        else if (i.file_type && i.file_type.startsWith('audio/')) media = '<audio controls src="' + i.file_path + '" class="media"></audio>';
+        else media = '<a href="' + i.file_path + '" target="_blank">View File Attachment</a>';
+      }
+      return '<div class="timeline-item">' +
+        '<small><b>' + i.username + '</b> • ' + new Date(i.created_at).toLocaleString() + '</small>' +
+        '<p style="margin: 5px 0;">' + (i.message || '') + '</p>' + media +
+      '</div>';
+    }).join('');
+  } catch (err) { alert('Failed to load timeline.'); } 
+  finally { hideOverlay(); }
+}
+
+async function postTimelineUpdate() {
+  var btn = document.getElementById('postUpdateBtn');
+  var fileInput = document.getElementById('updateFile');
+  btn.disabled = true;
+
+  var formData = new FormData();
+  formData.append('message', document.getElementById('updateMsg').value);
+  formData.append('assigned_to', document.getElementById('timelineAssigneeSelect').value);
+  if (fileInput.files.length > 0) formData.append('file', fileInput.files[0]);
+
+  try {
+    var res = await fetch('/api/cases/' + caseId + '/timeline', { method: 'POST', body: formData });
+    if (res.ok) {
+      document.getElementById('updateMsg').value = '';
+      fileInput.value = '';
+      loadTimeline();
+    }
+  } catch (err) {} finally { btn.disabled = false; }
+}
+
+async function updateCaseStatus(newStatus, isDelivered) {
+  if (!confirm('Are you sure you want to change case status?')) return;
+  showOverlay('Updating status...');
+  try {
+    var res = await fetch('/api/cases/' + caseId + '/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus, is_delivered: isDelivered })
+    });
+    if (res.ok) loadTimeline();
+  } catch (err) {} finally { hideOverlay(); }
+}
+
+async function deleteCase() {
+  if (!confirm('Are you sure you want to delete this case?')) return;
+  try {
+    var res = await fetch('/api/cases/' + caseId, { method: 'DELETE' });
+    if (res.ok) window.location.href = '/cases';
+  } catch (err) {}
+}
+
+checkAuth().then(function() {
+  fetchUsersList();
+  loadTimeline();
+});
+</script>
+</body>
+</html>

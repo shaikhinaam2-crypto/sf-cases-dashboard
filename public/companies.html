@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Company Management - Delivery Portal</title>
+  <link rel="stylesheet" href="/css/portal.css">
+  <script src="/js/shared.js"></script>
+</head>
+<body>
+
+<div id="globalOverlayLoader">
+  <div class="big-spinner"></div>
+  <p style="margin-top: 12px; font-weight: bold; color: #1a73e8;" id="overlayText">Loading portal data...</p>
+</div>
+
+<div class="header">
+  <h3 style="margin:0;">Delivery Portal</h3>
+  <div>
+    <span id="userInfo" style="margin-right: 15px;"></span>
+    <a href="/dashboard" class="nav-btn">Dashboard</a>
+    <a href="/cases" class="nav-btn">Cases List</a>
+    <a id="adminNavBtn" href="/users" class="nav-btn">Manage Users</a>
+    <a id="superadminNavBtn" href="/companies" class="nav-btn active">Manage Companies</a>
+    <button class="nav-btn btn-danger" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<div class="container">
+  <h3>Superadmin Management: Register Companies</h3>
+  
+  <div style="background:#f9f9f9; padding:15px; border-radius:5px; border: 1px solid #e0e0e0;">
+    <h4 style="margin-top:0;">Register New Company & Company Admin</h4>
+    <input type="text" id="compName" placeholder="Company Name" style="width:100%"><br>
+    <input type="text" id="compAdminUser" placeholder="Company Admin Username" style="width:49%">
+    <input type="password" id="compAdminPass" placeholder="Company Admin Password" style="width:49%"><br><br>
+    <button id="createCompBtn" onclick="createCompany()">Create Company</button>
+  </div>
+
+  <h4 style="margin-top:25px;">Registered Companies</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>Company ID</th>
+        <th>Company Name</th>
+        <th>Date Registered</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="companiesTableBody"></tbody>
+  </table>
+</div>
+
+<script>
+async function createCompany() {
+  var btn = document.getElementById('createCompBtn');
+  var company_name = document.getElementById('compName').value;
+  var admin_username = document.getElementById('compAdminUser').value;
+  var admin_password = document.getElementById('compAdminPass').value;
+
+  if (!company_name || !admin_username || !admin_password) return alert('Provide all company details');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating...';
+
+  try {
+    var res = await fetch('/api/superadmin/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_name: company_name, admin_username: admin_username, admin_password: admin_password })
+    });
+
+    if (res.ok) {
+      document.getElementById('compName').value = '';
+      document.getElementById('compAdminUser').value = '';
+      document.getElementById('compAdminPass').value = '';
+      loadCompanies();
+    } else {
+      var err = await res.json();
+      alert(err.error || 'Failed to create company');
+    }
+  } catch (err) {
+    alert('Failed to create company.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Create Company';
+  }
+}
+
+async function deleteCompany(companyId, companyName) {
+  if (!confirm('Are you sure you want to delete "' + companyName + '"? ALL company users, cases, and media files will be erased permanently.')) return;
+
+  showOverlay('Deleting company and media...');
+  try {
+    var res = await fetch('/api/superadmin/companies/' + companyId, { method: 'DELETE' });
+    if (res.ok) {
+      loadCompanies();
+    } else {
+      var err = await res.json();
+      alert(err.error || 'Failed to delete company');
+    }
+  } catch (err) {
+    alert('Failed to delete company.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+async function loadCompanies() {
+  showOverlay('Loading companies...');
+  try {
+    var res = await fetch('/api/superadmin/companies');
+    var companies = await res.json();
+    var tbody = document.getElementById('companiesTableBody');
+    tbody.innerHTML = (companies || []).map(function(c) {
+      var cId = c.id || c._id;
+      return '<tr>' +
+        '<td>' + cId + '</td>' +
+        '<td><b>' + c.name + '</b></td>' +
+        '<td>' + new Date(c.created_at).toLocaleString() + '</td>' +
+        '<td><button class="btn-danger" onclick="deleteCompany(\'' + cId + '\', \'' + c.name + '\')">Delete Company</button></td>' +
+      '</tr>';
+    }).join('');
+  } catch (err) {
+    alert('Failed to load companies.');
+  } finally {
+    hideOverlay();
+  }
+}
+
+checkAuth('superadminNavBtn').then(function() {
+  loadCompanies();
+});
+</script>
+</body>
+</html>
