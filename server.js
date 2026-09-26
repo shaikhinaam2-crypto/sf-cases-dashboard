@@ -140,6 +140,90 @@ app.get('/api/me', (req, res) => {
   res.json(req.session.user);
 });
 
+// Dashboard Analytics API (Safeguarded against empty date strings)
+app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
+  const currentUser = req.session.user;
+  const startDate = req.query.start_date;
+  const endDate = req.query.end_date;
+
+  try {
+    let whereClauses = [];
+    let params = [];
+    let paramIndex = 1;
+
+    // Company Scoping for non-SUPERADMINs
+    if (currentUser.role !== 'SUPERADMIN') {
+      whereClauses.push(`company_id = $${paramIndex++}`);
+      params.push(currentUser.company_id);
+    }
+
+    // Strict Date Validation Guard
+    if (startDate && endDate && startDate.trim() !== '' && endDate.trim() !== '' && startDate !== 'undefined' && endDate !== 'undefined') {
+      const startIso = new Date(startDate + 'T00:00:00.000Z');
+      const endIso = new Date(endDate + 'T23:59:59.999Z');
+      
+      if (!isNaN(startIso.getTime()) && !isNaN(endIso.getTime())) {
+        whereClauses.push(`created_at BETWEEN $${paramIndex++} AND $${paramIndex++}`);
+        params.push(startIso, endIso);
+      }
+    }
+
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    // 1. KPI Aggregation
+    const kpiSql = `
+      SELECT 
+        COUNT(*) AS total_registered,
+        COUNT(*) FILTER (WHERE status = 'OPEN') AS total_open,
+        COUNT(*) FILTER (WHERE status = 'CLOSED') AS total_closed,
+        COUNT(*) FILTER (WHERE status = 'CLOSED' AND is_delivered = TRUE) AS total_delivered,
+        COUNT(*) FILTER (WHERE status = 'CLOSED' AND is_delivered = FALSE) AS total_undelivered
+      FROM cases
+      ${whereClause}
+    `;
+    const kpiRes = await pool.query(kpiSql, params);
+    const kpi = kpiRes.rows[0] || {};
+
+    // 2. User Breakdown
+    const userSql = `
+      SELECT COALESCE(assigned_to, 'Unassigned') AS username, COUNT(*) AS count
+      FROM cases
+      ${whereClause}
+      GROUP BY COALESCE(assigned_to, 'Unassigned')
+      ORDER BY count DESC
+    `;
+    const userRes = await pool.query(userSql, params);
+
+    // 3. Daily Velocity Trend
+    const trendSql = `
+      SELECT 
+        TO_CHAR(created_at, 'YYYY-MM-DD') AS date_label,
+        COUNT(*) AS registered_count,
+        COUNT(*) FILTER (WHERE status = 'CLOSED') AS closed_count
+      FROM cases
+      ${whereClause}
+      GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
+      ORDER BY date_label ASC
+    `;
+    const trendRes = await pool.query(trendSql, params);
+
+    res.json({
+      kpi: {
+        total_registered: parseInt(kpi.total_registered) || 0,
+        total_open: parseInt(kpi.total_open) || 0,
+        total_closed: parseInt(kpi.total_closed) || 0,
+        total_delivered: parseInt(kpi.total_delivered) || 0,
+        total_undelivered: parseInt(kpi.total_undelivered) || 0
+      },
+      userBreakdown: userRes.rows || [],
+      dailyTrend: trendRes.rows || []
+    });
+  } catch (err) {
+    console.error('Error fetching dashboard stats:', err);
+    res.status(500).json({ error: 'Failed to fetch dashboard metrics' });
+  }
+});
+
 // Create Company & Admin
 app.post('/api/superadmin/companies', authMiddleware, async (req, res) => {
   if (req.session.user.role !== 'SUPERADMIN') return res.status(403).json({ error: 'Forbidden' });
@@ -503,6 +587,7 @@ app.patch('/api/cases/:id/status', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to update status' });
   }
 });
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
