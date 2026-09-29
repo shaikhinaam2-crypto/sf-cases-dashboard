@@ -82,11 +82,11 @@ async function loadTimeline() {
   showOverlay('Loading timeline...');
 
   try {
-    // 1. Fetch Timeline Entries
+    // 1. Fetch Timeline Entries (URLs generated with Presigned S3 links)
     var res = await fetch('/api/cases/' + caseId + '/timeline');
     var items = await res.json();
 
-    // 2. Fetch Case Metadata (Pass status=ALL so CLOSED cases are retrieved)
+    // 2. Fetch Case Metadata (Pass status=ALL so CLOSED cases are properly identified)
     var caseRes = await fetch('/api/cases?status=ALL&limit=1000');
     var caseData = await caseRes.json();
     var match = (caseData.cases || []).find(function(c) { return (c.id || c._id) === caseId; });
@@ -109,7 +109,7 @@ async function loadTimeline() {
           reopenBtn.classList.add('hidden');
         } else {
           closeGroup.classList.add('hidden');
-          reopenBtn.classList.remove('hidden'); // Displays Re-open button for CLOSED status
+          reopenBtn.classList.remove('hidden');
         }
       }
 
@@ -118,21 +118,28 @@ async function loadTimeline() {
       }
     }
 
-    // 3. Render Timeline Entries
+    // 3. Render Timeline Items
     document.getElementById('timelineContainer').innerHTML = (items || []).map(function(i) {
       var media = '';
       if (i.file_path) {
-        if (i.file_type && i.file_type.startsWith('image/')) media = '<img src="' + i.file_path + '" class="media"/>';
-        else if (i.file_type && i.file_type.startsWith('audio/')) media = '<audio controls src="' + i.file_path + '" class="media"></audio>';
-        else media = '<a href="' + i.file_path + '" target="_blank">View File Attachment</a>';
+        if (i.file_type && i.file_type.startsWith('image/')) {
+          media = '<img src="' + i.file_path + '" class="media" loading="lazy"/>';
+        } else if (i.file_type && i.file_type.startsWith('audio/')) {
+          media = '<audio controls src="' + i.file_path + '" class="media"></audio>';
+        } else {
+          media = '<a href="' + i.file_path + '" target="_blank">View File Attachment</a>';
+        }
       }
       return '<div class="timeline-item">' +
         '<small><b>' + i.username + '</b> • ' + new Date(i.created_at).toLocaleString() + '</small>' +
         '<p style="margin: 5px 0;">' + (i.message || '') + '</p>' + media +
       '</div>';
     }).join('');
-  } catch (err) { alert('Failed to load timeline.'); } 
-  finally { hideOverlay(); }
+  } catch (err) { 
+    alert('Failed to load timeline.'); 
+  } finally { 
+    hideOverlay(); 
+  }
 }
 
 async function postTimelineUpdate() {
@@ -151,8 +158,15 @@ async function postTimelineUpdate() {
       document.getElementById('updateMsg').value = '';
       fileInput.value = '';
       loadTimeline();
+    } else {
+      var err = await res.json();
+      alert(err.error || 'Failed to post update');
     }
-  } catch (err) {} finally { btn.disabled = false; }
+  } catch (err) {
+    alert('Failed to post timeline update');
+  } finally { 
+    btn.disabled = false; 
+  }
 }
 
 async function updateCaseStatus(newStatus, isDelivered) {
